@@ -57,36 +57,49 @@ def get_neighbors(current_state, n_actors, n_scenes):
     neighbor_canidate = current_state.copy()
     # remove scene
     if what_operation == 1:
-        rm_scene = randint(0, len(current_state)-1)
-        neighbor_canidate.pop(rm_scene)
-        return neighbor_canidate
+        if len(neighbor_canidate) < 2:
+            return neighbor_canidate
+        else:
+            rm_scene = randint(0, len(current_state)-1)
+            neighbor_canidate.pop(rm_scene)
+            return neighbor_canidate
 
     # add scene
     elif what_operation == 2:
-        pick_a_scene = randint(0, n_scenes-1)
-        while pick_a_scene in neighbor_canidate:
+        if len(neighbor_canidate) == n_scenes:
+            return neighbor_canidate
+        else:
             pick_a_scene = randint(0, n_scenes-1)
-        neighbor_canidate.append(pick_a_scene)
-        return neighbor_canidate
+            while pick_a_scene in neighbor_canidate:
+                pick_a_scene = randint(0, n_scenes-1)
+            neighbor_canidate.append(pick_a_scene)
+            return neighbor_canidate
 
     # swap scene with scene not in proposal
     elif what_operation == 3 or what_operation == 4:
-        pick_a_scene = randint(0, n_scenes-1)
-        while pick_a_scene in neighbor_canidate:
+        
+        if len(neighbor_canidate) == n_scenes or len(neighbor_canidate) == 0:
+            return neighbor_canidate
+        else:
             pick_a_scene = randint(0, n_scenes-1)
-        rm_scene = randint(0, len(current_state)-1)
-        neighbor_canidate[rm_scene] = pick_a_scene
-        return neighbor_canidate
+            while pick_a_scene in neighbor_canidate:
+                pick_a_scene = randint(0, n_scenes-1)
+            rm_scene = randint(0, len(current_state)-1)
+            neighbor_canidate[rm_scene] = pick_a_scene
+            return neighbor_canidate
 
     # swap order of scenes in proposal
     elif what_operation == 5:
-        p0 = randint(0, len(neighbor_canidate)-1)
-        p1 = randint(0, len(neighbor_canidate)-1)
+        if len(neighbor_canidate) < 2:
+            return neighbor_canidate
+        else:
+            p0 = randint(0, len(neighbor_canidate)-1)
+            p1 = randint(0, len(neighbor_canidate)-1)
 
-        neighbor_canidate[p0] = current_state[p1]
-        neighbor_canidate[p1] = current_state[p0]
+            neighbor_canidate[p0] = current_state[p1]
+            neighbor_canidate[p1] = current_state[p0]
 
-        return neighbor_canidate
+            return neighbor_canidate
 
 
 def get_total_time(proposal, max_hours, min_hours, scene_time):
@@ -183,16 +196,16 @@ def cost(proposal, max_hours, min_hours, sa_matrix, scene_time, actors_to_ignore
     include_penalty, avoid_penalty = get_include_avoid_penalty(
         proposal, scenes_to_include, scenes_to_avoid)
 
-    time_cost_weight = 10
-    waiting_cost_weight = 2
+    time_cost_weight = 2
+    waiting_cost_weight = 5
     single_scene_weight = 1
     include_penalty_weight = 1
     avoid_penalty_weight = 3
-    call_penalty_weight = 0.5
+    call_penalty_weight = 1
 
     total_cost = (time_cost*time_cost_weight + waiting_cost*waiting_cost_weight + single_scene_penalty *
                   single_scene_weight + include_penalty*include_penalty_weight + avoid_penalty*avoid_penalty_weight + call_penalty*call_penalty_weight)/(time_cost_weight+waiting_cost_weight + single_scene_weight + include_penalty_weight + avoid_penalty_weight + call_penalty_weight)
-    if verbose:
+    if total_cost < 10:
         print('|---------------------------|')
         # print(proposal)
         print('time cost', time_cost*time_cost_weight)
@@ -270,23 +283,26 @@ def make_schedule(max_hours, min_hours, sa_matrix, scene_time, actors_to_ignore,
 
     t_max = 105
     t_min = 0
-    step_max = 15000
+    step_max = 1000
 
     # initial state (cannot contain scenes to avoid, or be empty)
     best_energy = 9999
     start_time = time.time()
     runtime = 0
     # max runtime before throwing error
-    max_runtime = 60
+    max_runtime = 30
     # run and if score is bad rerun automatically
-    while best_energy > 1000 and runtime < max_runtime:
+    while best_energy > 800 and runtime < max_runtime: 
         runtime = time.time()-start_time
         best_state = [1, 2, 3, 4, 5]
+        print('starting run; start energy = ', best_energy)
+        print('runtime = ', runtime)
+
         best_state, best_energy, hist = minimize(
             t_max, t_min, step_max, max_hours, min_hours, best_state, sa_matrix, scene_time, actors_to_ignore, scenes_to_include, scenes_to_avoid)
 
     if runtime > max_runtime:
-        print('No good solution found, please try again', best_energy)
+        print('No good solution found in time, please try again', best_energy)
     else:
         print('Found solution with cost:', best_energy)
 

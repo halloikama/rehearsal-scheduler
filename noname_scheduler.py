@@ -1,4 +1,5 @@
 #from ctypes import string_at
+from os import wait
 from tkinter import *
 from tkinter import messagebox
 import pandas as pd
@@ -74,8 +75,8 @@ def get_schedule_print(scene_matrix, name_list, scene_time, selected_scenes):
     return scheduledf
 
 def prepare_schedule():
-    wait_label = Label(root, text='Calculating... This can take up to a minute', fg='red')
-    wait_label.grid(row=24, column=0)
+    wait_label = Label(root, text='Calculating... This can take up to a minute', fg='red', height=10)
+    wait_label.grid(row=30, column=0)
 
     try:
         path_to_csv = path_e.get().strip()
@@ -95,7 +96,6 @@ def prepare_schedule():
         min_hours = float(min_e.get())
         max_hours = float(max_e.get())
 
-
         print(scene_time)
         print(actors_list)
         print(actors_ignore)
@@ -104,6 +104,12 @@ def prepare_schedule():
         print(min_hours)
         print(max_hours)
         print(input_matrix)
+
+        if set(scenes_include).union(set(scenes_avoid)):
+            messagebox.showerror(title='Competing values', message='scenes to avoid and scenes to include cannot contain the same scenes!')
+            raise avoid_include_exception()
+            
+
     except:
         messagebox.showerror(title='ERROR', message='Something went wrong with reading the input values, are all the Required fields filled in?')
         wait_label.destroy()
@@ -129,34 +135,37 @@ def prepare_schedule():
     selected_scenes_l.grid(row=0, columnspan=10)
     best_energy_l.grid(row=1, columnspan=10)
 
-    call_times = get_actor_call_times(state=best_state, name_list=actors_list, scene_time=scene_time, sa_matrix=input_matrix)
-    call_times_l = Label(result_frame, text='Call time T+: ' + str(call_times),wraplength=400)
-    call_times_l.grid(row=len(actors_list)+5, columnspan=15)
+    if best_energy < 800:
+        call_times = get_actor_call_times(state=best_state, name_list=actors_list, scene_time=scene_time, sa_matrix=input_matrix)
+        call_times_l = Label(result_frame, text='Call time T+: ' + str(call_times),wraplength=400)
+        call_times_l.grid(row=len(actors_list)+5, columnspan=15)
 
-    total_rehearsal_time = 0
-    for scene in best_state:
-        total_rehearsal_time += scene_time[scene]
-    total_rehearsal_time_minute = total_rehearsal_time % 60
-    total_rehearsal_time_hour = total_rehearsal_time/60
+        total_rehearsal_time = 0
+        for scene in best_state:
+            total_rehearsal_time += scene_time[scene]
+        total_rehearsal_time_minute = total_rehearsal_time % 60
+        total_rehearsal_time_hour = total_rehearsal_time/60
 
-    total_rehearsal_time_l = Label(result_frame, text='Total rehearsal time: ' +  str(total_rehearsal_time_hour)[0]  + ' hours, ' +  str(total_rehearsal_time_minute) + ' minutes')
-    total_rehearsal_time_l.grid(row=len(actors_list)+6, columnspan=15)
+        total_rehearsal_time_l = Label(result_frame, text='Total rehearsal time: ' +  str(total_rehearsal_time_hour)[0]  + ' hours, ' +  str(total_rehearsal_time_minute) + ' minutes')
+        total_rehearsal_time_l.grid(row=len(actors_list)+6, columnspan=15)
 
-    schedule_print = get_schedule_print(scene_matrix=input_matrix, name_list=actors_list, scene_time=scene_time, selected_scenes=selected_scenes)
-    # scene number label starts or row 2 col 1
-    for ix, scene in enumerate(selected_scenes):
-        result_scenes_e = Label(result_frame, width=5, text=str(scene), justify=CENTER)
-        result_scenes_e.grid(row=2, column=ix+1)
-    # actor names label starts on row 4 col 0
-    for ix, actor in enumerate(actors_list):
-        result_actors_e = Label(result_frame, width=10, text=actor, justify=RIGHT)
-        result_actors_e.grid(row=ix+3, column=0)
+        schedule_print = get_schedule_print(scene_matrix=input_matrix, name_list=actors_list, scene_time=scene_time, selected_scenes=selected_scenes)
+        # scene number label starts or row 2 col 1
+        for ix, scene in enumerate(selected_scenes):
+            result_scenes_e = Label(result_frame, width=5, text=str(scene), justify=CENTER)
+            result_scenes_e.grid(row=2, column=ix+1)
+        # actor names label starts on row 4 col 0
+        for ix, actor in enumerate(actors_list):
+            result_actors_e = Label(result_frame, width=10, text=actor, justify=RIGHT)
+            result_actors_e.grid(row=ix+3, column=0)
 
-    for row_ix, row in schedule_print.iterrows():
-        for col_ix, col in enumerate(row):
-            x_or_not = Label(result_frame, width=5, text=col, justify=CENTER)
-            x_or_not.grid(row=schedule_print.index.get_loc(row_ix)+3, column=col_ix+1)
+        for row_ix, row in schedule_print.iterrows():
+            for col_ix, col in enumerate(row):
+                x_or_not = Label(result_frame, width=5, text=col, justify=CENTER)
+                x_or_not.grid(row=schedule_print.index.get_loc(row_ix)+3, column=col_ix+1)
 
+    else:
+        messagebox.showwarning(title='No solution found', message='Couldn\'t find a good solution: please try again \n maybe your parameters are too tight.')
 
 
     wait_label.destroy()
