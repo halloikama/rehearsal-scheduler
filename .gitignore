@@ -131,3 +131,5 @@ dmypy.json
 
 *.csv
 .DS_Store
+distbuild
+*.spec

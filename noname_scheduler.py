@@ -1,4 +1,4 @@
-from ctypes import string_at
+#from ctypes import string_at
 from tkinter import *
 from tkinter import messagebox
 import pandas as pd
@@ -7,7 +7,7 @@ from make_schedule import load_data, make_schedule, get_actor_call_times
 root = Tk()
 
 root.title('NoName rehearsal scheduler V0.1')
-root.geometry("2000x600")
+root.geometry("1700x600")
 
 input_frame = LabelFrame(root,padx=10, pady=10)
 
@@ -19,13 +19,13 @@ path_e.grid(row=1, column=1, pady=10, padx=5)
 
 time_e = Entry(root, width=50)
 time_e.insert(END,[30, 60, 20, 30, 10, 20, 30, 30, 60, 90, 30, 30, 30, 20, 60, 20, 30])
-time_l = Label(root, text='Enter rehearsal time per scene (minutes) separated by space (Mandatory): ')
+time_l = Label(root, text='Enter rehearsal time per scene (minutes) separated by space (Required): ')
 time_l.grid(row=4, column=0, pady=10, padx=5)
 time_e.grid(row=4, column=1, pady=10, padx=5)
 
 name_e = Entry(root, width=50)
 name_e.insert(END, ['Todd','Giuliano','Zach','Salvador','Heini','Leben','Arnaud','Sophie','Maggie','Paulina','Dish','Sarah','Tom','Magdalena'])
-name_l = Label(root, text='Enter actor\'s names separated by space (Mandatory): ')
+name_l = Label(root, text='Enter actor\'s names separated by space (Required): ')
 name_l.grid(row=6, column=0, pady=10, padx=5)
 name_e.grid(row=6, column=1, pady=10, padx=5)
 
@@ -46,12 +46,12 @@ scenes_i_l.grid(row=14, column=0, pady=10, padx=5)
 scenes_i_e.grid(row=14, column=1, pady=10, padx=5)
 
 min_e = Entry(root, width=50)
-min_l = Label(root, text='Minimum number of hours to schedule (Mandatory):')
+min_l = Label(root, text='Minimum number of hours to schedule (Required):')
 min_l.grid(row=16, column=0, pady=10, padx=5)
 min_e.grid(row=16, column=1, pady=10, padx=5)
 
 max_e = Entry(root, width=50)
-max_l = Label(root, text='Maximum number of hours to schedule (Mandatory):')
+max_l = Label(root, text='Maximum number of hours to schedule (Required):')
 max_l.grid(row=18, column=0, pady=10, padx=5)
 max_e.grid(row=18, column=1, pady=10, padx=5)
 
@@ -79,6 +79,13 @@ def prepare_schedule():
 
     try:
         path_to_csv = path_e.get().strip()
+        input_matrix = load_data(path_to_csv=path_to_csv)
+    except:
+        messagebox.showerror(title='ERROR', message='Something went wrong reading the .csv file, is it in the same folder as the .exe?')
+        wait_label.destroy()
+        return
+
+    try:    
         scene_time = string_to_list(time_e.get(),True)
         actors_list = string_to_list(name_e.get(), False)
         actors_ignore = string_to_list(actors_i_e.get(), True)
@@ -88,7 +95,7 @@ def prepare_schedule():
         min_hours = float(min_e.get())
         max_hours = float(max_e.get())
 
-        input_matrix = load_data(path_to_csv=path_to_csv)
+
         print(scene_time)
         print(actors_list)
         print(actors_ignore)
@@ -97,26 +104,43 @@ def prepare_schedule():
         print(min_hours)
         print(max_hours)
         print(input_matrix)
+    except:
+        messagebox.showerror(title='ERROR', message='Something went wrong with reading the input values, are all the Required fields filled in?')
+        wait_label.destroy()
+        return        
 
+
+    try:
         best_state, best_energy = make_schedule(max_hours=max_hours, min_hours=min_hours, sa_matrix=input_matrix, scene_time=scene_time,
                     actors_to_ignore=actors_ignore, scenes_to_include=scenes_include, scenes_to_avoid=scenes_avoid)
     
     except:
-        messagebox.showerror(title='ERROR', message='Something went wrong, are all the mandatory fields filled in?')
+        messagebox.showerror(title='ERROR', message='Something went wrong with the algorithm, try again.')
         wait_label.destroy()
         return
 
-    call_times = get_actor_call_times(state=best_state, name_list=actors_list, scene_time=scene_time, sa_matrix=input_matrix)
+    
     result_frame = LabelFrame(root, text='results', padx=50, pady=50)
     result_frame.grid(row=1, column=3, padx=20, pady=20, rowspan=25)
-    call_times_l = Label(result_frame, text=str(call_times),wraplength=400)
-    #call_times_l.grid(row=22, column=0)
 
     selected_scenes = [scene+1 for scene in best_state]
     selected_scenes_l = Label(result_frame, text='Suggested scene rehearsal order: '+ str(selected_scenes))
     best_energy_l = Label(result_frame, text= 'Quality of suggestion (lower=better): ' + str(best_energy))
     selected_scenes_l.grid(row=0, columnspan=10)
     best_energy_l.grid(row=1, columnspan=10)
+
+    call_times = get_actor_call_times(state=best_state, name_list=actors_list, scene_time=scene_time, sa_matrix=input_matrix)
+    call_times_l = Label(result_frame, text='Call time T+: ' + str(call_times),wraplength=400)
+    call_times_l.grid(row=len(actors_list)+5, columnspan=15)
+
+    total_rehearsal_time = 0
+    for scene in best_state:
+        total_rehearsal_time += scene_time[scene]
+    total_rehearsal_time_minute = total_rehearsal_time % 60
+    total_rehearsal_time_hour = total_rehearsal_time/60
+
+    total_rehearsal_time_l = Label(result_frame, text='Total rehearsal time: ' +  str(total_rehearsal_time_hour)[0]  + ' hours, ' +  str(total_rehearsal_time_minute) + ' minutes')
+    total_rehearsal_time_l.grid(row=len(actors_list)+6, columnspan=15)
 
     schedule_print = get_schedule_print(scene_matrix=input_matrix, name_list=actors_list, scene_time=scene_time, selected_scenes=selected_scenes)
     # scene number label starts or row 2 col 1

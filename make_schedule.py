@@ -93,11 +93,10 @@ def get_total_time(proposal, max_hours, min_hours, scene_time):
     time = 0
     for e in proposal:
         time = time + scene_time[e]
-
-    if time > max_hours*60 or time < min_hours:
+    if time > max_hours*60 or time < min_hours*60:
         return 9999999
     else:
-        return (time-max_hours*60)**2*0.05
+        return 0
 
 
 def get_waiting_time(proposal, sa_matrix, scene_time, actors_to_ignore):
@@ -270,16 +269,15 @@ def load_data(path_to_csv):
 def make_schedule(max_hours, min_hours, sa_matrix, scene_time, actors_to_ignore, scenes_to_include, scenes_to_avoid):
 
     t_max = 105
-    #t = t_max
     t_min = 0
-    step_max = 10000
+    step_max = 15000
 
     # initial state (cannot contain scenes to avoid, or be empty)
     best_energy = 9999
     start_time = time.time()
     runtime = 0
     # max runtime before throwing error
-    max_runtime = 50
+    max_runtime = 60
     # run and if score is bad rerun automatically
     while best_energy > 1000 and runtime < max_runtime:
         runtime = time.time()-start_time
