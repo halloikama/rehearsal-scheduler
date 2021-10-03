@@ -56,6 +56,12 @@ max_l = Label(root, text='Maximum number of hours to schedule (Required):')
 max_l.grid(row=18, column=0, pady=10, padx=5)
 max_e.grid(row=18, column=1, pady=10, padx=5)
 
+max_c_e = Entry(root, width=50)
+max_c_l = Label(root, text='Maximum cost (lower number forces a better solution but it might not exist)(Required):')
+max_c_e.insert(END, 800)
+max_c_l.grid(row=20, column=0, pady=10, padx=5)
+max_c_e.grid(row=20, column=1, pady=10, padx=5)
+
 def string_to_list(input_string, to_int = False):
     splt_string = input_string.strip()
     splt_string = str.split(splt_string, sep=' ')
@@ -95,6 +101,7 @@ def prepare_schedule():
         
         min_hours = float(min_e.get())
         max_hours = float(max_e.get())
+        max_cost = int(max_c_e.get())
 
         print(scene_time)
         print(actors_list)
@@ -104,8 +111,10 @@ def prepare_schedule():
         print(min_hours)
         print(max_hours)
         print(input_matrix)
+        print(max_cost)
 
-        if set(scenes_include).union(set(scenes_avoid)):
+        if set(scenes_include).intersection(set(scenes_avoid)):
+            print(set(scenes_include).intersection(set(scenes_avoid)))
             messagebox.showerror(title='Competing values', message='scenes to avoid and scenes to include cannot contain the same scenes!')
             raise avoid_include_exception()
             
@@ -118,7 +127,7 @@ def prepare_schedule():
 
     try:
         best_state, best_energy = make_schedule(max_hours=max_hours, min_hours=min_hours, sa_matrix=input_matrix, scene_time=scene_time,
-                    actors_to_ignore=actors_ignore, scenes_to_include=scenes_include, scenes_to_avoid=scenes_avoid)
+                    actors_to_ignore=actors_ignore, scenes_to_include=scenes_include, scenes_to_avoid=scenes_avoid, max_cost=max_cost)
     
     except:
         messagebox.showerror(title='ERROR', message='Something went wrong with the algorithm, try again.')
@@ -171,7 +180,7 @@ def prepare_schedule():
     wait_label.destroy()
 
 button_ms = Button(root, text='Make schedule', command=prepare_schedule, width=20)
-button_ms.grid(row=20,column=0)
+button_ms.grid(row=22,column=0)
 
 
 

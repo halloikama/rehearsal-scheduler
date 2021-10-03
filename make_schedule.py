@@ -279,7 +279,7 @@ def load_data(path_to_csv):
     return sa_matrix
 
 
-def make_schedule(max_hours, min_hours, sa_matrix, scene_time, actors_to_ignore, scenes_to_include, scenes_to_avoid):
+def make_schedule(max_hours, min_hours, sa_matrix, scene_time, actors_to_ignore, scenes_to_include, scenes_to_avoid, max_cost):
 
     t_max = 105
     t_min = 0
@@ -292,7 +292,7 @@ def make_schedule(max_hours, min_hours, sa_matrix, scene_time, actors_to_ignore,
     # max runtime before throwing error
     max_runtime = 30
     # run and if score is bad rerun automatically
-    while best_energy > 800 and runtime < max_runtime: 
+    while best_energy > max_cost and runtime < max_runtime: 
         runtime = time.time()-start_time
         best_state = [1, 2, 3, 4, 5]
         print('starting run; start energy = ', best_energy)
