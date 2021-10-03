@@ -2,8 +2,8 @@
 from os import wait
 from tkinter import *
 from tkinter import messagebox
-import pandas as pd
 from make_schedule import load_data, make_schedule, get_actor_call_times
+import pandas as pd
 
 root = Tk()
 
@@ -13,26 +13,14 @@ root.geometry("1700x600")
 input_frame = LabelFrame(root,padx=10, pady=10)
 
 path_e = Entry(root, width=50)
-path_e.insert(END,'scene-actor-matrix.csv')
+path_e.insert(END,'scene-actor-matrix-full.csv')
 path_l = Label(root, text='Path to .csv file of M scenes and N actors (Mandatory): ')
 path_l.grid(row=1, column=0, pady=10, padx=5)
 path_e.grid(row=1, column=1, pady=10, padx=5)
 
-time_e = Entry(root, width=50)
-time_e.insert(END,[30, 60, 20, 30, 10, 20, 30, 30, 60, 90, 30, 30, 30, 20, 60, 20, 30])
-time_l = Label(root, text='Enter rehearsal time per scene (minutes) separated by space (Required): ')
-time_l.grid(row=4, column=0, pady=10, padx=5)
-time_e.grid(row=4, column=1, pady=10, padx=5)
-
-name_e = Entry(root, width=50)
-name_e.insert(END, ['Todd','Giuliano','Zach','Salvador','Heini','Leben','Arnaud','Sophie','Maggie','Paulina','Dish','Sarah','Tom','Magdalena'])
-name_l = Label(root, text='Enter actor\'s names separated by space (Required): ')
-name_l.grid(row=6, column=0, pady=10, padx=5)
-name_e.grid(row=6, column=1, pady=10, padx=5)
-
 actors_i_e = Entry(root, width=50)
-actors_i_e.insert(END, [3,5])
-actors_i_l = Label(root, text='Enter actor\'s number to ignore when calculating waiting time (optional) ')
+actors_i_e.insert(END, ['salvador','leben'])
+actors_i_l = Label(root, text='Enter actor\'s name to ignore when calculating waiting time (optional) ')
 actors_i_l.grid(row=10, column=0, pady=10, padx=5)
 actors_i_e.grid(row=10, column=1, pady=10, padx=5)
 
@@ -86,18 +74,29 @@ def prepare_schedule():
 
     try:
         path_to_csv = path_e.get().strip()
-        input_matrix = load_data(path_to_csv=path_to_csv)
+        input_matrix, actors_list, scene_time = load_data(path_to_csv=path_to_csv)
     except:
         messagebox.showerror(title='ERROR', message='Something went wrong reading the .csv file, is it in the same folder as the .exe?')
         wait_label.destroy()
         return
 
+
+    try:
+        actors_ignore = string_to_list(actors_i_e.get(), False)
+        actors_to_ignore = []
+        for actor in actors_ignore:
+            actors_to_ignore.append(actors_list.index(actor.lower()))
+        actors_ignore = actors_to_ignore
+
+    except ValueError:
+        print('actor to ignore not in the actor list')    
+
     try:    
-        scene_time = string_to_list(time_e.get(),True)
-        actors_list = string_to_list(name_e.get(), False)
-        actors_ignore = string_to_list(actors_i_e.get(), True)
         scenes_avoid = string_to_list(scenes_a_e.get(), True)
         scenes_include = string_to_list(scenes_i_e.get(), True)
+
+        for ix, actor in enumerate(actors_ignore):
+            print(ix)
         
         min_hours = float(min_e.get())
         max_hours = float(max_e.get())
@@ -117,8 +116,6 @@ def prepare_schedule():
             print(set(scenes_include).intersection(set(scenes_avoid)))
             messagebox.showerror(title='Competing values', message='scenes to avoid and scenes to include cannot contain the same scenes!')
             raise avoid_include_exception()
-            
-
     except:
         messagebox.showerror(title='ERROR', message='Something went wrong with reading the input values, are all the Required fields filled in?')
         wait_label.destroy()

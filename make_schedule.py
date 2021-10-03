@@ -269,6 +269,15 @@ def load_data(path_to_csv):
     # where a value of 1 means actor is in the scene and 0 actor is NOT in the scene.
     sa_matrix = pd.read_csv(path_to_csv)
     sa_matrix.fillna(0, inplace=True)
+
+    times = sa_matrix.iloc[:,[0]]
+    times = np.array(times)
+    times = [time[0] for time in times]
+
+    sa_matrix = sa_matrix.iloc[: , 1:]
+    names = list(sa_matrix.columns)
+    names = [name.lower() for name in names]
+
     sa_matrix = sa_matrix.to_numpy()
 
     # matrix with actor does not have to show up for optional scene
@@ -276,7 +285,7 @@ def load_data(path_to_csv):
     #sa_matrix_optional.fillna(0, inplace=True)
     #sa_matrix_optional = sa_matrix_optional.to_numpy()
 
-    return sa_matrix
+    return sa_matrix, names, times
 
 
 def make_schedule(max_hours, min_hours, sa_matrix, scene_time, actors_to_ignore, scenes_to_include, scenes_to_avoid, max_cost):
