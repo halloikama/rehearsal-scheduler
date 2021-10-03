@@ -205,7 +205,7 @@ def cost(proposal, max_hours, min_hours, sa_matrix, scene_time, actors_to_ignore
 
     total_cost = (time_cost*time_cost_weight + waiting_cost*waiting_cost_weight + single_scene_penalty *
                   single_scene_weight + include_penalty*include_penalty_weight + avoid_penalty*avoid_penalty_weight + call_penalty*call_penalty_weight)/(time_cost_weight+waiting_cost_weight + single_scene_weight + include_penalty_weight + avoid_penalty_weight + call_penalty_weight)
-    if total_cost < 10:
+    if total_cost < 0:
         print('|---------------------------|')
         # print(proposal)
         print('time cost', time_cost*time_cost_weight)

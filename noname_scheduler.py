@@ -1,9 +1,8 @@
-#from ctypes import string_at
-from os import wait
 from tkinter import *
 from tkinter import messagebox
 from make_schedule import load_data, make_schedule, get_actor_call_times
 import pandas as pd
+print('LOADING GUI')
 
 root = Tk()
 
@@ -13,7 +12,7 @@ root.geometry("1700x600")
 input_frame = LabelFrame(root,padx=10, pady=10)
 
 path_e = Entry(root, width=50)
-path_e.insert(END,'scene-actor-matrix-full.csv')
+path_e.insert(END,'scene-actor-matrix.csv')
 path_l = Label(root, text='Path to .csv file of M scenes and N actors (Mandatory): ')
 path_l.grid(row=1, column=0, pady=10, padx=5)
 path_e.grid(row=1, column=1, pady=10, padx=5)
@@ -96,7 +95,7 @@ def prepare_schedule():
         scenes_include = string_to_list(scenes_i_e.get(), True)
 
         for ix, actor in enumerate(actors_ignore):
-            print(ix)
+            print('Actors to ignore index',ix)
         
         min_hours = float(min_e.get())
         max_hours = float(max_e.get())
