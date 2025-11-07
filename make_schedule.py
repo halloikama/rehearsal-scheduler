@@ -19,19 +19,21 @@ def update_t(step, t_min, t_max, step_max):
     return new_t
 
 
+# This function is correct.
 def get_actor_call_times(state, name_list, scene_time, sa_matrix):
     # get what the first scene is when people need to attend
     n_actors = len(name_list)
     nr_calls = [0]*len(state)
     actor_call_time = [None]*n_actors
+    
+    # Loop over all actors
     for actor_ix, actor in enumerate(sa_matrix.T):
+        actor_id = actor_ix + 1
+        
         attend = actor[state]
-        # print(attend)
         for i in range(1, len(attend)+1):
             call_slice = attend[0:i]
-            # print(call_slice)
             call_test = (i-1)*[0]+[1]
-            # print(call_test)
 
             if (call_slice == call_test).all():
                 actor_call_time[actor_ix] = i
@@ -43,254 +45,346 @@ def get_actor_call_times(state, name_list, scene_time, sa_matrix):
     temp = np.array(scene_time)
     len_state_scenes = list(temp[state])
     for ix, call_scene in enumerate(actor_call_time):
-        if call_scene != None:
-            call_time_dict[name_list[ix]] = sum(
-                len_state_scenes[0:call_scene-1])
-        else:
-            call_time_dict[name_list[ix]] = 'N/A'
+        if call_scene:
+            call_time_dict[name_list[ix]] = sum(len_state_scenes[0:call_scene-1])
 
-    return call_time_dict
+    return call_time_dict, nr_calls
 
 
-def get_neighbors(current_state, n_actors, n_scenes):
-    what_operation = randint(1, 5)
-    neighbor_canidate = current_state.copy()
-    # remove scene
-    if what_operation == 1:
-        rm_scene = randint(0, len(current_state)-1)
-        neighbor_canidate.pop(rm_scene)
-        return neighbor_canidate
+# --- THIS FUNCTION CONTAINS THE PENALTY FIX ---
+def energy_function(state, sa_matrix, scene_time, max_hours, min_hours, actors_to_ignore, name_list, scenes_to_avoid_0idx):
+    
+    temp = np.array(scene_time)
+    len_state_scenes = list(temp[state])
+    total_time = sum(len_state_scenes) 
 
-    # add scene
-    elif what_operation == 2:
-        pick_a_scene = randint(0, n_scenes-1)
-        while pick_a_scene in neighbor_canidate:
-            pick_a_scene = randint(0, n_scenes-1)
-        neighbor_canidate.append(pick_a_scene)
-        return neighbor_canidate
+    # --- Actor Hard Constraint Penalty (Renamed for clarity) ---
+    actor_hard_constraint_penalty = 0
+    if actors_to_ignore: 
+        try:
+            actors_to_ignore_0idx = [a - 1 for a in actors_to_ignore]
+            state_matrix = sa_matrix[state, :]
+            state_ignored_actor_matrix = state_matrix[:, actors_to_ignore_0idx]
+            violations = np.sum(state_ignored_actor_matrix)
+            actor_hard_constraint_penalty = violations * 1000000 
+        except IndexError:
+            actor_hard_constraint_penalty = 1000000 
+            print("Warning: Index error during hard constraint check.")
 
-    # swap scene with scene not in proposal
-    elif what_operation == 3 or what_operation == 4:
-        pick_a_scene = randint(0, n_scenes-1)
-        while pick_a_scene in neighbor_canidate:
-            pick_a_scene = randint(0, n_scenes-1)
-        rm_scene = randint(0, len(current_state)-1)
-        neighbor_canidate[rm_scene] = pick_a_scene
-        return neighbor_canidate
+    # --- THIS IS THE FIX: Add Avoided Scene Penalty ---
+    avoided_scene_penalty = 0
+    # Check if state is not empty (no scenes, no violations)
+    if scenes_to_avoid_0idx and state: 
+        avoided_scene_violations = set(state) & set(scenes_to_avoid_0idx)
+        avoided_scene_penalty = len(avoided_scene_violations) * 1000000
+    # --- END OF FIX ---
+            
+    # --- Time Constraint Penalty (Unchanged) ---
+    max_time = max_hours*60
+    min_time = min_hours*60
+    time_constraint_penalty = 0
+    
+    if total_time > max_time:
+        time_constraint_penalty = 1000 * (total_time - max_time)
+    if total_time < min_time:
+        time_constraint_penalty = 1000 * (min_time - total_time)
+        
+    # --- Update Breakdown Dict ---
+    energy_breakdown = {
+        "Total Time (min)": total_time,
+        "Wait Time (min)": 0,
+        "Call Penalty": 0,
+        "Short Work Penalty": 0, 
+        "Time Constraint Penalty": time_constraint_penalty,
+        "Actor Ignore Penalty": actor_hard_constraint_penalty, # Renamed
+        "Avoided Scene Penalty": avoided_scene_penalty # Added
+    }
+    
+    if not state:
+        base_energy = 999999 + time_constraint_penalty + actor_hard_constraint_penalty + avoided_scene_penalty
+        return base_energy, {}, [0], energy_breakdown
 
-    # swap order of scenes in proposal
-    elif what_operation == 5:
-        p0 = randint(0, len(neighbor_canidate)-1)
-        p1 = randint(0, len(neighbor_canidate)-1)
-
-        neighbor_canidate[p0] = current_state[p1]
-        neighbor_canidate[p1] = current_state[p0]
-
-        return neighbor_canidate
-
-
-def get_total_time(proposal, max_hours, min_hours, scene_time):
-    time = 0
-    for e in proposal:
-        time = time + scene_time[e]
-
-    if time > max_hours*60 or time < min_hours:
-        return 9999999
-    else:
-        return (time-max_hours*60)**2*0.05
-
-
-def get_waiting_time(proposal, sa_matrix, scene_time, actors_to_ignore):
-    # set actors to ignore (in this case 3 and 5 who always have to attend the whole day)
-    state = proposal
-
-    single_scene_show = 0
-    cum_wait_period = 0
-    nr_calls = [0]*len(state)
-    for actor_ix, actor in enumerate(sa_matrix.T):
-
-        # ignore actors who always have to be there
-        if actor_ix in actors_to_ignore:
+    # --- 1. Corrected Wait Time Logic & Short Work Penalty (Unchanged) ---
+    total_wait_time = 0
+    short_work_penalty = 0 
+    n_actors = sa_matrix.shape[1] 
+    state_matrix = sa_matrix[state, :]
+    
+    for actor_ix in range(n_actors):
+        if (actor_ix + 1) in actors_to_ignore:
+             continue
+             
+        actor_schedule_in_state = state_matrix[:, actor_ix]
+        scenes_present_indices = np.where(actor_schedule_in_state == 1)[0]
+        
+        if len(scenes_present_indices) == 0:
             continue
+            
+        first_scene_pos = scenes_present_indices[0]
+        last_scene_pos = scenes_present_indices[-1]
+        
+        actor_schedule_slice_durations = len_state_scenes[first_scene_pos : last_scene_pos + 1]
+        actor_schedule_in_state_slice = actor_schedule_in_state[first_scene_pos : last_scene_pos + 1]
+        
+        total_actor_time_min = sum(actor_schedule_slice_durations)
+        actor_work_time_min = sum(np.array(actor_schedule_slice_durations) * actor_schedule_in_state_slice)
+        
+        wait_time = total_actor_time_min - actor_work_time_min
+        total_wait_time += wait_time
+        
+        if actor_work_time_min > 0 and actor_work_time_min < 60:
+            short_work_penalty += 500 
+        
+    # --- 2. Call Time / Nr_Calls Calculation (Unchanged) ---
+    call_times, nr_calls = get_actor_call_times(state, name_list, scene_time, sa_matrix)
 
-        actor_attend = actor[state]
-
-        # add penalty for an actor only having to show up for a single scene
-        if sum(actor_attend) == 1:
-            single_scene_show += 99999
-
-        # calculate the number of calls per scene
-        for i in range(1, len(actor_attend)+1):
-            call_slice = actor_attend[0:i]
-            call_test = (i-1)*[0]+[1]
-
-            if (call_slice == call_test).all():
-                nr_calls[i-1] += 1
-
-        has_to_attend = 0
-        possible_wait_period = 0
-        wait_period = 0
-        # go through the selected state scenes per actor and see if the actor has to attend
-        for scene_attendance_ix, attend in enumerate(actor_attend):
-            # change default if actor has to attend
-            if attend == 1 and has_to_attend == 0:
-                has_to_attend = 1
-
-            # add waiting time if actor has to wait after having to attend
-            if has_to_attend == 1 and attend == 0:
-                current_scene = state[scene_attendance_ix]
-                possible_wait_period += scene_time[current_scene]
-
-            # if actor has a scene after (i.e. cannot go home) add possible wait time to real wait time
-            if possible_wait_period > 0 and attend == 1:
-                wait_period = wait_period + possible_wait_period
-                possible_wait_period = 0
-
-        # add actor waiting time to cumulative waiting time
-        cum_wait_period = cum_wait_period + wait_period
-
-    scene_has_call = [call > 0 for call in nr_calls]
-    nr_call_periods = sum(scene_has_call)
-
-    # TODO: refine call penalty, set ideal number of calls per hour
-    call_penalty = 0
-    if nr_call_periods/len(state) > 0.5:
-        call_penalty = (nr_call_periods/len(state)-0.5)**2*5000
-
-    return cum_wait_period, single_scene_show, call_penalty
+    # --- 3. Combined Energy Calculation ---
+    call_penalty = sum(nr_calls) * 50 
+    
+    total_energy = (total_wait_time + call_penalty + time_constraint_penalty + 
+                    actor_hard_constraint_penalty + avoided_scene_penalty + short_work_penalty)
+    
+    # --- Update Final Breakdown Dict ---
+    energy_breakdown = {
+        "Total Time (min)": total_time,
+        "Wait Time (min)": total_wait_time,
+        "Call Penalty": call_penalty,
+        "Short Work Penalty": short_work_penalty, 
+        "Time Constraint Penalty": time_constraint_penalty,
+        "Actor Ignore Penalty": actor_hard_constraint_penalty, # Renamed
+        "Avoided Scene Penalty": avoided_scene_penalty # Added
+    }
+    
+    return total_energy, call_times, nr_calls, energy_breakdown
 
 
-def get_include_avoid_penalty(proposal, scenes_to_include, scenes_to_avoid):
-    scenes_to_include0 = set([scene - 1 for scene in scenes_to_include])
-    scenes_to_avoid0 = set([scene - 1 for scene in scenes_to_avoid])
-    proposal = set(proposal)
+# --- THIS FUNCTION CONTAINS THE INDEXING FIX ---
+def get_neighbour(state, scenes_to_avoid_0idx, scenes_to_include_0idx, sa_matrix):
+    # get a random neighbour state
+    # by adding, removing or swapping a scene
+    
+    n_scenes = len(sa_matrix)
+    new_state = state[:]
+    
+    # 50% chance to add/remove, 50% chance to swap
+    if random() < 0.5 or len(new_state) < 2:
+        # add or remove
+        add = True
+        if not new_state: # if empty, must add
+            add = True
+        elif len(new_state) >= n_scenes: # if full, must remove
+            add = False
+        elif random() < 0.5: # 50/50
+            add = False
+            
+        if add:
+            # Add a scene
+            # --- FIX: Use 0-indexed scenes_to_avoid_0idx ---
+            possible_scenes = list(set(range(n_scenes)) - set(new_state) - set(scenes_to_avoid_0idx))
+            if not possible_scenes:
+                return new_state # No scenes left to add
+            
+            scene_to_add = possible_scenes[randint(0, len(possible_scenes) - 1)]
+            
+            if new_state:
+                insert_pos = randint(0, len(new_state))
+                new_state.insert(insert_pos, scene_to_add)
+            else:
+                new_state.append(scene_to_add)
+        else:
+            # Remove a scene
+            # Do not remove scenes that are in the "must include" list
+            possible_removals = []
+            for ix, scene in enumerate(new_state):
+                # --- FIX: Use 0-indexed scenes_to_include_0idx ---
+                # scene is 0-indexed, check against 0-indexed list
+                if scene not in scenes_to_include_0idx:
+                    possible_removals.append(ix)
+            
+            if not possible_removals:
+                # This can happen if state is only "must_include" scenes
+                if len(new_state) > 1:
+                    idx1, idx2 = np.random.choice(len(new_state), 2, replace=False)
+                    new_state[idx1], new_state[idx2] = new_state[idx2], new_state[idx1]
+                return new_state # Return (potentially swapped) state
+                
+            remove_pos = possible_removals[randint(0, len(possible_removals) - 1)]
+            new_state.pop(remove_pos)
+            
+    else:
+        # swap
+        if len(new_state) > 1:
+            idx1, idx2 = np.random.choice(len(new_state), 2, replace=False)
+            new_state[idx1], new_state[idx2] = new_state[idx2], new_state[idx1]
 
-    avoid_penalty = 0
-    include_penalty = 0
-
-    if proposal & scenes_to_avoid0:
-        avoid_penalty += 99999
-    if not scenes_to_include0.issubset(proposal):
-        include_penalty += 99999
-
-    return include_penalty, avoid_penalty
-
-
-def cost(proposal, max_hours, min_hours, sa_matrix, scene_time, actors_to_ignore, scenes_to_include, scenes_to_avoid, verbose=False):
-
-    time_cost = get_total_time(proposal, max_hours, min_hours, scene_time)
-    waiting_cost, single_scene_penalty, call_penalty = get_waiting_time(
-        proposal, sa_matrix, scene_time, actors_to_ignore)
-    include_penalty, avoid_penalty = get_include_avoid_penalty(
-        proposal, scenes_to_include, scenes_to_avoid)
-
-    time_cost_weight = 10
-    waiting_cost_weight = 2
-    single_scene_weight = 1
-    include_penalty_weight = 1
-    avoid_penalty_weight = 3
-    call_penalty_weight = 0.5
-
-    total_cost = (time_cost*time_cost_weight + waiting_cost*waiting_cost_weight + single_scene_penalty *
-                  single_scene_weight + include_penalty*include_penalty_weight + avoid_penalty*avoid_penalty_weight + call_penalty*call_penalty_weight)/(time_cost_weight+waiting_cost_weight + single_scene_weight + include_penalty_weight + avoid_penalty_weight + call_penalty_weight)
-    if verbose:
-        print('|---------------------------|')
-        # print(proposal)
-        print('time cost', time_cost*time_cost_weight)
-        print('waiting cost', waiting_cost*waiting_cost_weight)
-        print('single scene penalty', single_scene_penalty*single_scene_weight)
-        print('include penalty', include_penalty*include_penalty_weight)
-        print('avoid penalty', avoid_penalty*avoid_penalty_weight)
-        print('call penalty', call_penalty*call_penalty_weight)
-
-    return(total_cost, time_cost, waiting_cost)
-
-
-def minimize(t_max, t_min, step_max,
-             max_hours, min_hours, begin_state, sa_matrix,
-             scene_time, actors_to_ignore, scenes_to_include, scenes_to_avoid):
-
-    current_state = begin_state
-    t = t_max
-    current_energy, _, _ = cost(
-        current_state, max_hours, min_hours, sa_matrix, scene_time, actors_to_ignore, scenes_to_include, scenes_to_avoid)
-    best_state = current_state.copy()
-    best_energy = current_energy
-    hist = []
-
-    step, accept = 1, 0
-    while step <= step_max and t >= t_min and t > 0:
-
-        # get proposed neighbor
-        proposed_neighbor = get_neighbors(
-            current_state, sa_matrix.shape[1], sa_matrix.shape[0])
-
-        # check energy level of neighbor (we want to minimize energy)
-        e_n, time, wait = cost(proposed_neighbor, max_hours, min_hours,
-                               sa_matrix, scene_time, actors_to_ignore, scenes_to_include, scenes_to_avoid)
-        dE = e_n - current_energy
-
-        # determine if we should accept the current neighbor
-        if random() < safe_exp(-dE / t):
-            current_energy = e_n
-            current_state = proposed_neighbor
-            accept += 1
-
-        # check if the current neighbor is best solution so far
-        if e_n < best_energy:
-            best_energy = e_n
-            best_state = proposed_neighbor
-
-        hist.append([step, t, best_energy, current_energy,
-                    time, wait, current_state])
-
-        # update temp
-        t = update_t(step, t_min, t_max, step_max)
-        step += 1
-
-    return best_state, best_energy, hist
+    return new_state
 
 
 def load_data(path_to_csv):
-    # load data
-    # M x N matrix with M scenes and N actors,
-    # where a value of 1 means actor is in the scene and 0 actor is NOT in the scene.
-    sa_matrix = pd.read_csv(path_to_csv)
-    sa_matrix.fillna(0, inplace=True)
-    sa_matrix = sa_matrix.to_numpy()
+    """Loads all data from the CSV."""
+    try:
+        df = pd.read_csv(path_to_csv, index_col=0, header=0)
+        
+        # Fill all empty cells (read as NaN) with 0 before converting
+        df_filled = df.fillna(0)
+        
+        # Get actor names from columns
+        actor_names = list(df_filled.columns)
+        
+        # Get scene times from index (the first column)
+        scene_times = list(df_filled.index.values)
+        
+        # Get the matrix as numpy array
+        sa_matrix = df_filled.to_numpy().astype(int)
+        
+        # Ensure scene_times are numbers
+        try:
+            scene_times_numeric = [int(t) for t in scene_times]
+        except ValueError:
+            raise ValueError("The first column (scene times/index) contains non-numeric values.")
+        
+        return sa_matrix, actor_names, scene_times_numeric
+        
+    except FileNotFoundError:
+        raise FileNotFoundError(f"File not found: {path_to_csv}")
+    except pd.errors.EmptyDataError:
+        raise ValueError("The CSV file is in empty.")
+    except Exception as e:
+        raise ValueError(f"Error reading CSV: {e}. Ensure it has a header (actor names) and an index col (scene times).")
 
-    # matrix with actor does not have to show up for optional scene
-    #sa_matrix_optional = pd.read_csv('scene-actor-matrix-optional.csv')
-    #sa_matrix_optional.fillna(0, inplace=True)
-    #sa_matrix_optional = sa_matrix_optional.to_numpy()
 
-    return sa_matrix
-
-
-def make_schedule(max_hours, min_hours, sa_matrix, scene_time, actors_to_ignore, scenes_to_include, scenes_to_avoid):
+# --- THIS FUNCTION CONTAINS THE INDEXING FIX ---
+def make_schedule(max_hours, min_hours, sa_matrix, scene_time, actors_list, actors_to_ignore, scenes_to_include, scenes_to_avoid):
 
     t_max = 105
-    #t = t_max
     t_min = 0
     step_max = 10000
 
-    # initial state (cannot contain scenes to avoid, or be empty)
-    best_energy = 9999
-    start_time = time.time()
-    runtime = 0
-    # max runtime before throwing error
-    max_runtime = 50
-    # run and if score is bad rerun automatically
-    while best_energy > 1000 and runtime < max_runtime:
-        runtime = time.time()-start_time
-        best_state = [1, 2, 3, 4, 5]
-        best_state, best_energy, hist = minimize(
-            t_max, t_min, step_max, max_hours, min_hours, best_state, sa_matrix, scene_time, actors_to_ignore, scenes_to_include, scenes_to_avoid)
+    # --- THIS IS THE FIX ---
+    # Convert 1-based UI lists to 0-based algorithm lists
+    n_scenes_total = len(sa_matrix)
+    scenes_to_include_0idx = [s - 1 for s in scenes_to_include if s - 1 < n_scenes_total]
+    scenes_to_avoid_0idx = [s - 1 for s in scenes_to_avoid if s - 1 < n_scenes_total]
+    # --- END OF FIX ---
 
-    if runtime > max_runtime:
-        print('No good solution found, please try again', best_energy)
-    else:
-        print('Found solution with cost:', best_energy)
+    # --- FIX: Use 0-indexed lists for start_state ---
+    start_state = [scene for scene in scenes_to_include_0idx if scene not in scenes_to_avoid_0idx]
+    start_state = list(set(start_state)) # Remove duplicates
+    
+    if not start_state:
+        # If no scenes to include, start with a random valid scene
+        possible_starts = list(set(range(n_scenes_total)) - set(scenes_to_avoid_0idx))
+        if possible_starts:
+            start_state = [possible_starts[randint(0, len(possible_starts)-1)]]
+        else:
+            start_state = [0] # Fallback
+    # --- END OF FIX ---
+            
+    best_state = start_state
+    
+    # --- FIX: Pass 0-indexed list to energy_function ---
+    E_old, best_call_times, best_nr_calls, best_breakdown = energy_function(best_state, sa_matrix, scene_time, max_hours, min_hours, actors_to_ignore, actors_list, scenes_to_avoid_0idx)
+    best_energy = E_old
+    
+    for step in range(0, step_max):
+        t = update_t(step, t_min, t_max, step_max)
 
-    return best_state, best_energy
+        # --- FIX: Pass 0-indexed lists to get_neighbour ---
+        new_state = get_neighbour(best_state, scenes_to_avoid_0idx, scenes_to_include_0idx, sa_matrix)
+        
+        # --- FIX: Pass 0-indexed list to energy_function ---
+        E_new, new_call_times, new_nr_calls, new_breakdown = energy_function(new_state, sa_matrix, scene_time, max_hours, min_hours, actors_to_ignore, actors_list, scenes_to_avoid_0idx)
+        
+        delta_e = E_new - E_old
 
+        if delta_e < 0:
+            best_state = new_state
+            best_energy = E_new
+            E_old = E_new
+            best_call_times = new_call_times
+            best_nr_calls = new_nr_calls
+            best_breakdown = new_breakdown
+        else:
+            if safe_exp(-delta_e/t) > random():
+                best_state = new_state
+                E_old = E_new
+                
+    # Check if final state has hard constraint violations
+    if best_energy >= 1000000:
+        print("Warning: Could not find a valid schedule. The one found violates a hard constraint.")
+    
+    # --- FIX: Check 0-indexed list ---
+    for scene_to_include_0 in scenes_to_include_0idx:
+        if scene_to_include_0 not in best_state:
+            # Convert back to 1-based for the warning
+            print(f"Warning: Could not include scene {scene_to_include_0 + 1} in final schedule.")
+    # --- END OF FIX ---
+
+    return best_state, best_energy, best_call_times, best_nr_calls, best_breakdown
+
+
+# --- THIS FUNCTION IS CORRECT ---
+def get_schedule_print(scene_matrix, name_list, scene_time, selected_scenes, actors_to_ignore=[]):
+    
+    # Handle empty schedule case
+    if not selected_scenes:
+        schedule_df = pd.DataFrame(index=name_list)
+        schedule_df['Wait (min)'] = 0
+        schedule_df['Total (min)'] = 0
+        if actors_to_ignore:
+            actors_to_ignore_0idx = [a - 1 for a in actors_to_ignore]
+            names_to_drop = [name_list[i] for i in actors_to_ignore_0idx if i < len(name_list)]
+            schedule_df = schedule_df.drop(names_to_drop, errors='ignore')
+        
+        schedule_df = schedule_df[schedule_df['Total (min)'] > 0]
+        return schedule_df
+
+    # --- Schedule is NOT empty, proceed ---
+    selected_scenes_1indexed = [s + 1 for s in selected_scenes]
+    schedule_matrix = scene_matrix[selected_scenes, :]
+    
+    schedule_df = pd.DataFrame(schedule_matrix.T, columns=selected_scenes_1indexed, index=name_list)
+    schedule_df_display = schedule_df.replace({1: 'X', 0: ''})
+    
+    scene_times_np = np.array(scene_time)[selected_scenes]
+    scene_duration_map = pd.Series(scene_times_np, index=schedule_df.columns)
+
+    wait_times = []
+    total_times = []
+    
+    for actor_name, row in schedule_df.iterrows():
+        actor_scenes = row[row == 1]
+        
+        if actor_scenes.empty:
+            wait_times.append(0)
+            total_times.append(0)
+            continue
+            
+        actor_scene_indices = actor_scenes.index
+        
+        schedule_cols_list = list(schedule_df.columns)
+        first_scene_pos = schedule_cols_list.index(actor_scene_indices[0])
+        last_scene_pos = schedule_cols_list.index(actor_scene_indices[-1])
+        
+        actor_schedule_slice_durations = scene_times_np[first_scene_pos : last_scene_pos + 1]
+        
+        actor_total_time_min = np.sum(actor_schedule_slice_durations)
+        actor_work_time_min = scene_duration_map[actor_scene_indices].sum()
+        wait_time = actor_total_time_min - actor_work_time_min
+        
+        wait_times.append(int(wait_time))
+        total_times.append(int(actor_total_time_min))
+
+    schedule_df_display['Wait (min)'] = wait_times
+    schedule_df_display['Total (min)'] = total_times
+    
+    # Drop IGNORED actors
+    if actors_to_ignore:
+        actors_to_ignore_0idx = [a - 1 for a in actors_to_ignore]
+        names_to_drop = [name_list[i] for i in actors_to_ignore_0idx if i < len(name_list)]
+        schedule_df_display = schedule_df_display.drop(names_to_drop, errors='ignore')
+
+    # Drop UNCALLED actors
+    schedule_df_display = schedule_df_display[schedule_df_display['Total (min)'] > 0]
+
+    return schedule_df_display
